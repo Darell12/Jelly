@@ -146,7 +146,6 @@ namespace Jellyfin.Server
                     mainApp.UseDeveloperExceptionPage();
                 }
 
-                Console.WriteLine("Entrando al middleware JwtMiddleware");
                 mainApp.UseWhen(
                     context =>
                 {
@@ -155,7 +154,6 @@ namespace Jellyfin.Server
                     },
                     appBuilder =>
                 {
-                    Console.WriteLine("ACCEDE AL MIDDLEWARE");
                     app.UseMiddleware<JwtMiddleware>();
                 });
                 Console.WriteLine("Saliendo del middleware JwtMiddleware");

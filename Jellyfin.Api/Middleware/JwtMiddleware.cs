@@ -1,12 +1,14 @@
 using System;
+using System.Collections.Generic;
 using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
 using System.Security.Claims;
-using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using Jellyfin.Api.Constants;
+using Jellyfin.Api.DB;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Identity.Data;
-using Microsoft.Extensions.Primitives;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Newtonsoft.Json.Linq;
 
@@ -15,7 +17,7 @@ namespace Jellyfin.Api.Middleware;
 /// <summary>
 /// Middleware para interceptar las solicitudes antes de llegar al controlador capturando el jwt.
 /// </summary>
-public class JwtMiddleware
+public partial class JwtMiddleware
 {
     private readonly RequestDelegate _next;
     private readonly string _secrectKey =
@@ -37,42 +39,92 @@ public class JwtMiddleware
     /// <returns>Una tarea que representa la operación asincrónica.</returns>
     public async Task InvokeAsync(HttpContext context)
     {
-        Console.WriteLine("DENTRO DEL MIDDLEWARE");
         // Lógica para leer el token JWT de la URL
         var token = context.Request.Query["token"].FirstOrDefault();
+        if (context.Request.Path == "/videos/get" || context.Request.Path.StartsWithSegments("/videos", StringComparison.CurrentCultureIgnoreCase))
+        {
+            if (string.IsNullOrEmpty(token))
+            {
+                Console.WriteLine("Token no detectado.");
+                context.Response.StatusCode = 401;
+                await context.Response.WriteAsync("Unauthorized").ConfigureAwait(false);
+                return;
+            }
 
-        if (context.Request.Path == "/videos/test" || context.Request.Path == "/api")
-        {
-        if (string.IsNullOrEmpty(token))
-        {
-            context.Response.StatusCode = 401;
-            await context.Response.WriteAsync("Unauthorized").ConfigureAwait(false);
-            return;
+            if (!IsValidToken(token))
+            {
+                Console.WriteLine("Token invalido.");
+                context.Response.StatusCode = 403;
+                await context.Response.WriteAsync("Invalid token").ConfigureAwait(false);
+                return;
+            }
+
+            string referer = context.Request.Headers.Referer.ToString();
+            Console.WriteLine(referer);
+            if (!ValidarDominio(referer))
+            {
+                Console.WriteLine("El referer no coincide con al menos un dominio en la base de datos.");
+                context.Response.StatusCode = 401;
+                await context.Response.WriteAsync("Dominio no autorizado").ConfigureAwait(false);
+                return;
+            }
+
+            try
+            {
+                context.Items["info"] = GetInfoFromToken(token);
+            }
+            catch (SecurityTokenException)
+            {
+                context.Response.StatusCode = 401;
+                await context.Response.WriteAsync("Invalid token").ConfigureAwait(false);
+                return;
+            }
         }
 
-        if (!IsValidToken(token))
-        {
-            context.Response.StatusCode = 403;
-            await context.Response.WriteAsync("Invalid token").ConfigureAwait(false);
-            return;
-        }
-
-        try
-        {
-            Console.WriteLine("DENTRO de la asigancion de valores");
-            context.Items["info"] = GetInfoFromToken(token);
-        }
-        catch (SecurityTokenException)
-        {
-        context.Response.StatusCode = 401;
-        await context.Response.WriteAsync("Invalid token").ConfigureAwait(false);
-        return;
-        }
-        }
-
-        Console.WriteLine("CONTINUA");
         // Continuar con el siguiente middleware
         await _next.Invoke(context).ConfigureAwait(false);
+    }
+
+    private static bool ValidarDominio(string referer)
+    {
+        var allValidDomains = new List<string>();
+        const string queryDomain = "SELECT description FROM tenancy_domains";
+
+        Database.CreateConnection(DBConnections.MangusProd);
+
+        var validDomainsMangus = Database.Instance.PerformDatabaseOperation(queryDomain);
+        allValidDomains.AddRange(validDomainsMangus);
+
+        Database.CreateConnection(DBConnections.Tenancies);
+        var validDomainsTenencias = Database.Instance.PerformDatabaseOperation(queryDomain);
+        allValidDomains.AddRange(validDomainsTenencias);
+
+        Database.Instance.CloseConnection();
+
+        // Normalizar el referer y la lista de dominios
+        string refererNormalizado = NormalizarReferer(referer);
+        string[] dominiosNormalizados = allValidDomains.Select(NormalizarDominio).ToArray();
+
+        bool coincide = dominiosNormalizados.Any(refererNormalizado.Contains);
+
+        return coincide;
+    }
+
+    private static string NormalizarReferer(string referer)
+    {
+        // Normalizar la cadena, quitar "http://" y "https://", y convertir a minúsculas
+#pragma warning disable CA1307 // Specify StringComparison for clarity
+
+        return referer.Replace("http://", string.Empty).Replace("https://", string.Empty).Replace("/", string.Empty).ToLower(System.Globalization.CultureInfo.CurrentCulture);
+
+#pragma warning restore CA1307 // Specify StringComparison for clarity
+    }
+
+    // Función para normalizar un dominio
+    private static string NormalizarDominio(string dominio)
+    {
+        // Convertir a minúsculas
+        return dominio.ToLower(System.Globalization.CultureInfo.CurrentCulture);
     }
 
     private bool IsValidToken(string token)
@@ -83,6 +135,7 @@ public class JwtMiddleware
             var key = System.Text.Encoding.UTF8.GetBytes(_secrectKey);
 
             // Configuración de la validación del token
+            #pragma warning disable CA5404 // No deshabilitar comprobaciones de validación de tokens
             var validationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
             {
                 ValidateIssuerSigningKey = true,
@@ -91,6 +144,7 @@ public class JwtMiddleware
                 ValidateAudience = false,
                 ClockSkew = TimeSpan.Zero
             };
+            #pragma warning restore CA5404 // No deshabilitar comprobaciones de validación de tokens
 
             // Validar el token
             var principal = tokenHandler.ValidateToken(
@@ -115,6 +169,7 @@ public class JwtMiddleware
             // Configuración del lector de token
             var tokenHandler = new JwtSecurityTokenHandler();
             var key = System.Text.Encoding.UTF8.GetBytes(_secrectKey); // Asegúrate de tener la clave correcta
+            #pragma warning disable CA5404 // No deshabilitar comprobaciones de validación de tokens
             var validationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
             {
                 ValidateIssuerSigningKey = true,
@@ -123,25 +178,22 @@ public class JwtMiddleware
                 ValidateAudience = false,
                 ClockSkew = TimeSpan.Zero
             };
+            #pragma warning restore CA5404 // No deshabilitar comprobaciones de validación de tokens
 
             var claimsPrincipal = tokenHandler.ValidateToken(
                 token,
                 validationParameters,
                 out var validatedToken);
 
-            if (claimsPrincipal?.Identity != null)
+            if (claimsPrincipal?.Identity == null || ((ClaimsIdentity)claimsPrincipal.Identity).FindFirst("info") == null)
             {
-                // Extraer el ID del elemento desde las claims
-                var infoClaim = ((ClaimsIdentity)claimsPrincipal.Identity).FindFirst("info");
-
-                if (infoClaim != null)
-                {
-                    var jsonValue = JObject.Parse(infoClaim.Value);
-                    return jsonValue;
-                }
+                return null;
             }
 
-            return null;
+            var infoClaim = ((ClaimsIdentity)claimsPrincipal.Identity).FindFirst("info");
+
+            var jsonValue = JObject.Parse(infoClaim?.Value!);
+            return jsonValue;
         }
         catch (Exception ex)
         {
@@ -150,4 +202,7 @@ public class JwtMiddleware
             return null;
         }
     }
+
+    [GeneratedRegex(@"/videos/([0-9a-f]{32})/stream")]
+    private static partial Regex MyRegex();
 }

@@ -7,7 +7,6 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Api.Attributes;
-using Jellyfin.Api.Constants;
 using Jellyfin.Api.Extensions;
 using Jellyfin.Api.Helpers;
 using Jellyfin.Api.ModelBinders;
@@ -706,7 +705,7 @@ public class VideosController : BaseJellyfinApiController
     /// <param name="streamOptions">Optional. The streaming options.</param>
     /// <response code="200">Video stream returned.</response>
     /// <returns>A <see cref="FileResult"/> containing the audio file.</returns>
-    [HttpGet("test")]
+    [HttpGet("get")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesVideoFile]
     public Task<ActionResult> GetVideoStreamByContainer(
@@ -843,7 +842,7 @@ public class VideosController : BaseJellyfinApiController
         context,
         streamOptions);
     // #pragma warning restore CS8604 // Possible null reference argument.
-        }
+    }
     else
     {
         Console.WriteLine($"Valor de info: {info}");
@@ -855,6 +854,6 @@ public class VideosController : BaseJellyfinApiController
 
         return Task.FromResult<ActionResult>(NoContent());
     }
-    #pragma warning restore CS8602 // Dereference of a possibly null reference.
+#pragma warning restore CS8602 // Dereference of a possibly null reference.
     }
 }
