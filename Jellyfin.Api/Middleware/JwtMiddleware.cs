@@ -8,7 +8,6 @@ using System.Threading.Tasks;
 using Jellyfin.Api.Constants;
 using Jellyfin.Api.DB;
 using Microsoft.AspNetCore.Http;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Newtonsoft.Json.Linq;
 
@@ -103,7 +102,7 @@ public partial class JwtMiddleware
 
         // Normalizar el referer y la lista de dominios
         string refererNormalizado = NormalizarReferer(referer);
-        string[] dominiosNormalizados = allValidDomains.Select(NormalizarDominio).ToArray();
+        string[] dominiosNormalizados = allValidDomains.Select(NormalizeDomain).ToArray();
 
         bool coincide = dominiosNormalizados.Any(refererNormalizado.Contains);
 
@@ -121,10 +120,10 @@ public partial class JwtMiddleware
     }
 
     // Función para normalizar un dominio
-    private static string NormalizarDominio(string dominio)
+    private static string NormalizeDomain(string domain)
     {
         // Convertir a minúsculas
-        return dominio.ToLower(System.Globalization.CultureInfo.CurrentCulture);
+        return domain.ToLower(System.Globalization.CultureInfo.CurrentCulture);
     }
 
     private bool IsValidToken(string token)
@@ -151,14 +150,11 @@ public partial class JwtMiddleware
                 token,
                 validationParameters,
                 out var validatedToken);
-            return true; // La validación fue exitosa
-
-            // Si necesitas acceder a las claims del token, puedes hacerlo a través de 'principal'
+            return true;
         }
         catch (Exception)
         {
-            // Manejar cualquier error durante la validación
-            return false; // La validación no fue exitosa
+            return false;
         }
     }
 
@@ -202,7 +198,4 @@ public partial class JwtMiddleware
             return null;
         }
     }
-
-    [GeneratedRegex(@"/videos/([0-9a-f]{32})/stream")]
-    private static partial Regex MyRegex();
 }
